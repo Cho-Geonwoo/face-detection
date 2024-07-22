@@ -4,6 +4,7 @@ import {
   Camera,
   useCameraDevice,
   useFrameProcessor,
+  VideoFile,
 } from 'react-native-vision-camera';
 import {
   useFaceDetector,
@@ -13,6 +14,8 @@ import {Worklets} from 'react-native-worklets-core';
 
 export default function App() {
   const [isFaceDetected, setIsFaceDetected] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [videoFile, setVideoFile] = useState<VideoFile | null>(null);
 
   const faceDetectionOptions = useRef<FaceDetectionOptions>({
     performanceMode: 'fast',
@@ -21,6 +24,7 @@ export default function App() {
 
   const device = useCameraDevice('front');
   const {detectFaces} = useFaceDetector(faceDetectionOptions);
+  const cameraRef = useRef<Camera>(null);
 
   useEffect(() => {
     (async () => {
@@ -28,12 +32,28 @@ export default function App() {
     })();
   }, [device]);
 
-  const handleDetectedFaces = Worklets.createRunOnJS(() => {
+  const handleDetectedFaces = Worklets.createRunOnJS(async () => {
     setIsFaceDetected(true);
+    if (!isRecording && cameraRef.current) {
+      setIsRecording(true);
+      await cameraRef.current.startRecording({
+        onRecordingFinished: videoFile => {
+          setVideoFile(videoFile);
+          setIsRecording(false);
+        },
+        onRecordingError: error => {
+          console.error(error);
+          setIsRecording(false);
+        },
+      });
+    }
   });
 
-  const handleUndetectedFaces = Worklets.createRunOnJS(() => {
+  const handleUndetectedFaces = Worklets.createRunOnJS(async () => {
     setIsFaceDetected(false);
+    if (isRecording && cameraRef.current) {
+      await cameraRef.current.stopRecording();
+    }
   });
 
   const frameProcessor = useFrameProcessor(
@@ -47,13 +67,14 @@ export default function App() {
         handleUndetectedFaces();
       }
     },
-    [handleDetectedFaces],
+    [handleDetectedFaces, handleUndetectedFaces],
   );
 
   return (
     <View style={{flex: 1}}>
       {device ? (
         <Camera
+          ref={cameraRef}
           device={device}
           isActive={true}
           style={{flex: 1}}
@@ -63,6 +84,11 @@ export default function App() {
         <Text>No Device</Text>
       )}
       <Text>{isFaceDetected ? 'Face Detected' : 'No Face Detected'}</Text>
+      {videoFile && (
+        <View>
+          <Text>Video recorded at: {videoFile.path}</Text>
+        </View>
+      )}
     </View>
   );
 }
